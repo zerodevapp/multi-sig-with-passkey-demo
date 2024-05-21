@@ -9,13 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@zerodev/passkey-validator": "5.2.3",
     "@zerodev/sdk": "5.2.13",
+    "@zerodev/weighted-validator": "^5.2.0-alpha-0",
     "next": "14.1.0",
-    "permissionless": "0.1.20",
     "react": "^18",
-    "react-dom": "^18",
-    "viem": "2.9.26"
+    "react-dom": "^18"
   },
   "devDependencies": {
     "typescript": "^5",

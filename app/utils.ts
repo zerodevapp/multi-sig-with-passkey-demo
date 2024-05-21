@@ -41,6 +41,16 @@ export const registerAndFetchPassKeyPublicKey = async (
   });
 };
 
+export const loginAndFetchPassKeyPublicKey = async (
+  passkeyName: string
+): Promise<WebAuthnKey> => {
+  return await toWebAuthnPubKey({
+    passkeyName,
+    passkeyServerUrl: PASSKEY_URL,
+    mode: WebAuthnMode.Login,
+  });
+};
+
 export const createWeightedAccountClient = async (
   signer: WeightedSigner,
   ecdsaSignerAddress: Address,
