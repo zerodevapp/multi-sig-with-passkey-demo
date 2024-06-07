@@ -3,20 +3,18 @@ import { Inter } from "next/font/google";
 import { useState, useEffect } from "react";
 import {
   PASSKEY_URL,
-  createWeightedAccountClient,
+  createMultiChainWeightedAccountAndClient,
   entryPoint,
   loginAndFetchPassKeyPublicKey,
   publicClient,
   registerAndFetchPassKeyPublicKey,
 } from "./utils";
-import { KernelAccountClient, KernelSmartAccount } from "@zerodev/sdk";
+import { KernelSmartAccount } from "@zerodev/sdk";
 import {
   WebAuthnKey,
-  WeightedKernelAccountClient,
-  encodeSignatures,
   toECDSASigner,
   toWebAuthnSigner,
-} from "@zerodev/weighted-validator";
+} from "@zerodev/multi-chain-weighted-validator";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
   Hex,
@@ -28,7 +26,9 @@ import {
 } from "viem";
 import { ENTRYPOINT_ADDRESS_V07_TYPE } from "permissionless/types";
 import { bundlerActions } from "permissionless";
-import { encodeAbiParameters } from "viem/utils";
+import { MultiChainWeightedKernelAccountClient } from "@zerodev/multi-chain-weighted-validator";
+import { baseSepolia, sepolia } from "viem/chains";
+import { ApproveUserOperationReturnType } from "@zerodev/multi-chain-weighted-validator";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -38,10 +38,13 @@ export default function Home() {
   const [privateKey, setPrivateKey] = useState<Hex>();
   const [scwAddress, setScwAddress] = useState<Address>();
   const [signatures, setSignatures] = useState<Hex[]>([]);
+  const [approvals, setApprovals] = useState<ApproveUserOperationReturnType[]>(
+    []
+  );
   const [signer, setSigner] = useState<PrivateKeyAccount>();
   const [kernelClient, setKernelClient] =
     useState<
-      WeightedKernelAccountClient<
+      MultiChainWeightedKernelAccountClient<
         ENTRYPOINT_ADDRESS_V07_TYPE,
         Transport,
         Chain,
@@ -51,8 +54,7 @@ export default function Home() {
   const [txHash, setTxHash] = useState<Hex>();
 
   useEffect(() => {
-    const pKey =
-      "0x2827b876ee775816460ab6eb4481352a752101f950899831702ccead54bde932"; // generatePrivateKey();
+    const pKey = generatePrivateKey();
     setPrivateKey(pKey);
     setSigner(privateKeyToAccount(pKey));
   }, []);
@@ -72,31 +74,33 @@ export default function Home() {
     setPublicKey(_publicKey);
   };
 
-  const createPassKeyWeightedAccount = async () => {
+  const createPassKeyWeightedAccount = async (chain: Chain) => {
     if (!signer || !publicKey) return;
     const passKeySigner = await toWebAuthnSigner(publicClient, {
       passkeyName: passKeyName,
       passkeyServerUrl: PASSKEY_URL,
       pubKey: publicKey,
     });
-    const client = await createWeightedAccountClient(
+    const { client } = await createMultiChainWeightedAccountAndClient(
       passKeySigner,
       signer?.address,
-      publicKey
+      publicKey,
+      chain
     );
     console.log({ passKeyClient: client });
     setKernelClient(client);
   };
 
-  const createEcdsaWeightedAccount = async () => {
+  const createEcdsaWeightedAccount = async (chain: Chain) => {
     if (!signer || !publicKey) return;
     const ecdsaSigner = await toECDSASigner({
       signer,
     });
-    const client = await createWeightedAccountClient(
+    const { client } = await createMultiChainWeightedAccountAndClient(
       ecdsaSigner,
       signer?.address,
-      publicKey
+      publicKey,
+      chain
     );
     console.log({ ecdsaClient: client });
     setKernelClient(client);
@@ -104,7 +108,24 @@ export default function Home() {
 
   const approveUserOperation = async () => {
     if (!kernelClient) return;
-    const signature = await kernelClient.approveUserOperation({
+    if (!signer || !publicKey) return;
+    const ecdsaSigner = await toECDSASigner({
+      signer,
+    });
+    const multiChainAccounts = (
+      await Promise.all(
+        [sepolia, baseSepolia].map((chain) =>
+          createMultiChainWeightedAccountAndClient(
+            ecdsaSigner,
+            signer?.address,
+            publicKey,
+            chain
+          )
+        )
+      )
+    ).map((value) => value.account);
+
+    const approval = await kernelClient.approveUserOperation({
       userOperation: {
         callData: await kernelClient.account.encodeCallData({
           to: zeroAddress,
@@ -112,14 +133,15 @@ export default function Home() {
           value: BigInt(0),
         }),
       },
+      multiChainAccounts,
     });
-    console.log({ signature });
-    setSignatures([...signatures, signature]);
+    console.log({ approval });
+    setApprovals([...approvals, approval]);
   };
 
   const sendTxWithClient = async () => {
     if (!kernelClient) return;
-    const userOpHash = await kernelClient.sendUserOperationWithSignatures({
+    const userOpHash = await kernelClient.sendUserOperationWithApprovals({
       userOperation: {
         callData: await kernelClient.account.encodeCallData({
           to: zeroAddress,
@@ -127,7 +149,7 @@ export default function Home() {
           data: "0x",
         }),
       },
-      signatures,
+      approvals,
     });
     console.log({ userOpHash });
     const txReceipt = await kernelClient
@@ -207,10 +229,10 @@ export default function Home() {
                 Step 2: Create Passkey Client and Approve
               </div>
               <button
-                onClick={createPassKeyWeightedAccount}
+                onClick={() => createPassKeyWeightedAccount(sepolia)}
                 className="btn bg-green-500 text-white rounded-lg px-4 py-2 w-full"
               >
-                Create Passkey Client
+                Create Passkey Client (Sepolia)
               </button>
               <button
                 onClick={approveUserOperation}
@@ -221,13 +243,30 @@ export default function Home() {
             </div>
             <div className="space-y-2">
               <div className="text-md font-semibold">
-                Step 3: Create Ecdsa Client and Send Tx
+                Step 3: Create Ecdsa Client and Send Tx on Sepolia
               </div>
               <button
-                onClick={createEcdsaWeightedAccount}
+                onClick={() => createEcdsaWeightedAccount(sepolia)}
                 className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
               >
-                Create Ecdsa Client
+                Create Ecdsa Client (Sepolia)
+              </button>
+              <button
+                onClick={sendTxWithClient}
+                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Send Tx with Client
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 4: Create Ecdsa Client and Send Tx on Base Sepolia
+              </div>
+              <button
+                onClick={() => createEcdsaWeightedAccount(baseSepolia)}
+                className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Create Ecdsa Client (Base Sepolia)
               </button>
               <button
                 onClick={sendTxWithClient}

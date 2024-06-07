@@ -1,29 +1,46 @@
 import {
   toWebAuthnPubKey,
-  toWebAuthnSigner,
-  toECDSASigner,
   WebAuthnMode,
   WebAuthnKey,
-  createWeightedValidator,
-  SIGNER_TYPE,
-  createWeightedKernelAccountClient,
-} from "@zerodev/weighted-validator";
+} from "@zerodev/multi-chain-weighted-validator";
 import {
   createKernelAccount,
   createZeroDevPaymasterClient,
-  createKernelAccountClient,
 } from "@zerodev/sdk";
-import { Address, PrivateKeyAccount, createPublicClient, http } from "viem";
-import { sepolia } from "viem/chains";
+import { Address, Chain, createPublicClient, http } from "viem";
+import { baseSepolia, sepolia } from "viem/chains";
 import { ENTRYPOINT_ADDRESS_V07 } from "permissionless";
-import { WeightedSigner } from "@zerodev/weighted-validator";
+import { WeightedSigner } from "@zerodev/multi-chain-weighted-validator";
+import {
+  createMultiChainWeightedValidator,
+  createMultiChainWeightedKernelAccountClient,
+} from "@zerodev/multi-chain-weighted-validator";
 
 export const PASSKEY_URL =
-  "https://passkeys.zerodev.app/api/v3/efbc1add-1c14-476e-b3f1-206db80e673c";
+  "https://passkeys.zerodev.app/api/v3/d6304566-6855-4db5-8dfe-58b8809f0857";
 export const BUNDLER_URL =
-  "https://rpc.zerodev.app/api/v2/bundler/efbc1add-1c14-476e-b3f1-206db80e673c";
+  "https://rpc.zerodev.app/api/v2/bundler/d6304566-6855-4db5-8dfe-58b8809f0857";
 export const PAYMASTER_URL =
-  "https://rpc.zerodev.app/api/v2/paymaster/efbc1add-1c14-476e-b3f1-206db80e673c";
+  "https://rpc.zerodev.app/api/v2/paymaster/d6304566-6855-4db5-8dfe-58b8809f0857";
+export const chainConfig: {
+  [key: Chain["id"]]: {
+    bundler: string;
+    paymaster: string;
+  };
+} = {
+  [sepolia.id]: {
+    bundler:
+      "https://rpc.zerodev.app/api/v2/bundler/d6304566-6855-4db5-8dfe-58b8809f0857",
+    paymaster:
+      "https://rpc.zerodev.app/api/v2/paymaster/d6304566-6855-4db5-8dfe-58b8809f0857",
+  },
+  [baseSepolia.id]: {
+    bundler:
+      "https://rpc.zerodev.app/api/v2/bundler/9c00e33d-d76d-4f83-8668-f13659dac9fb",
+    paymaster:
+      "https://rpc.zerodev.app/api/v2/paymaster/9c00e33d-d76d-4f83-8668-f13659dac9fb",
+  },
+};
 export const entryPoint = ENTRYPOINT_ADDRESS_V07;
 export const chain = sepolia;
 export const publicClient = createPublicClient({
@@ -51,28 +68,36 @@ export const loginAndFetchPassKeyPublicKey = async (
   });
 };
 
-export const createWeightedAccountClient = async (
+export const createMultiChainWeightedAccountAndClient = async (
   signer: WeightedSigner,
   ecdsaSignerAddress: Address,
-  publicKey: WebAuthnKey
+  publicKey: WebAuthnKey,
+  chain: Chain
 ) => {
-  const multiSigValidator = await createWeightedValidator(publicClient, {
-    entryPoint,
-    signer,
-    config: {
-      threshold: 100,
-      signers: [
-        {
-          publicKey: ecdsaSignerAddress,
-          weight: 50,
-        },
-        {
-          publicKey,
-          weight: 100,
-        },
-      ],
-    },
+  const publicClient = createPublicClient({
+    transport: http(chainConfig[chain.id].bundler),
+    chain,
   });
+  const multiSigValidator = await createMultiChainWeightedValidator(
+    publicClient,
+    {
+      entryPoint,
+      signer,
+      config: {
+        threshold: 100,
+        signers: [
+          {
+            publicKey: ecdsaSignerAddress,
+            weight: 50,
+          },
+          {
+            publicKey,
+            weight: 50,
+          },
+        ],
+      },
+    }
+  );
 
   const account = await createKernelAccount(publicClient, {
     entryPoint,
@@ -84,17 +109,17 @@ export const createWeightedAccountClient = async (
   const paymasterClient = createZeroDevPaymasterClient({
     entryPoint,
     chain,
-    transport: http(PAYMASTER_URL),
+    transport: http(chainConfig[chain.id].paymaster),
   });
 
-  const client = createWeightedKernelAccountClient({
+  const client = createMultiChainWeightedKernelAccountClient({
     account,
     entryPoint,
     chain,
-    bundlerTransport: http(BUNDLER_URL),
+    bundlerTransport: http(chainConfig[chain.id].bundler),
     middleware: {
       sponsorUserOperation: paymasterClient.sponsorUserOperation,
     },
   });
-  return client;
+  return { account, client };
 };

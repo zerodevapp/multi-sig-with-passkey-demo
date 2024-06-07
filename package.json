@@ -10,10 +10,11 @@
   },
   "dependencies": {
     "@zerodev/sdk": "5.2.13",
-    "@zerodev/weighted-validator": "^5.2.0-alpha-0",
+    "@zerodev/multi-chain-weighted-validator": "^5.2.0-alpha-1",
     "next": "14.1.0",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^18",
+    "viem": "2.10.2"
   },
   "devDependencies": {
     "typescript": "^5",
