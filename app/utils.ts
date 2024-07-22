@@ -1,8 +1,10 @@
 import {
-  toWebAuthnPubKey,
-  WebAuthnMode,
   WebAuthnKey,
 } from "@zerodev/multi-chain-weighted-validator";
+import {
+  WebAuthnMode,
+  toWebAuthnKey
+} from "@zerodev/webauthn-key";
 import {
   createKernelAccount,
   createZeroDevPaymasterClient,
@@ -15,13 +17,14 @@ import {
   createMultiChainWeightedValidator,
   createMultiChainWeightedKernelAccountClient,
 } from "@zerodev/multi-chain-weighted-validator";
+import { KERNEL_V3_1 } from '@zerodev/sdk/constants';
 
 export const PASSKEY_URL =
-  "https://passkeys.zerodev.app/api/v3/d6304566-6855-4db5-8dfe-58b8809f0857";
+  "https://passkeys.zerodev.app/api/v3/eb928232-8e0d-4756-996b-c8ae6147677c";
 export const BUNDLER_URL =
-  "https://rpc.zerodev.app/api/v2/bundler/d6304566-6855-4db5-8dfe-58b8809f0857";
+  "https://rpc.zerodev.app/api/v2/bundler/eb928232-8e0d-4756-996b-c8ae6147677c";
 export const PAYMASTER_URL =
-  "https://rpc.zerodev.app/api/v2/paymaster/d6304566-6855-4db5-8dfe-58b8809f0857";
+  "https://rpc.zerodev.app/api/v2/paymaster/eb928232-8e0d-4756-996b-c8ae6147677c";
 export const chainConfig: {
   [key: Chain["id"]]: {
     bundler: string;
@@ -30,15 +33,15 @@ export const chainConfig: {
 } = {
   [sepolia.id]: {
     bundler:
-      "https://rpc.zerodev.app/api/v2/bundler/d6304566-6855-4db5-8dfe-58b8809f0857",
+      "https://rpc.zerodev.app/api/v2/bundler/eb928232-8e0d-4756-996b-c8ae6147677c",
     paymaster:
-      "https://rpc.zerodev.app/api/v2/paymaster/d6304566-6855-4db5-8dfe-58b8809f0857",
+      "https://rpc.zerodev.app/api/v2/paymaster/eb928232-8e0d-4756-996b-c8ae6147677c",
   },
   [baseSepolia.id]: {
     bundler:
-      "https://rpc.zerodev.app/api/v2/bundler/9c00e33d-d76d-4f83-8668-f13659dac9fb",
+      "https://rpc.zerodev.app/api/v2/bundler/a637b264-19cb-4a5d-9929-9b706fe10acc",
     paymaster:
-      "https://rpc.zerodev.app/api/v2/paymaster/9c00e33d-d76d-4f83-8668-f13659dac9fb",
+      "https://rpc.zerodev.app/api/v2/paymaster/a637b264-19cb-4a5d-9929-9b706fe10acc",
   },
 };
 export const entryPoint = ENTRYPOINT_ADDRESS_V07;
@@ -51,20 +54,22 @@ export const publicClient = createPublicClient({
 export const registerAndFetchPassKeyPublicKey = async (
   passkeyName: string
 ): Promise<WebAuthnKey> => {
-  return await toWebAuthnPubKey({
+  return await toWebAuthnKey({
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Register,
+    passkeyServerHeaders: {}
   });
 };
 
 export const loginAndFetchPassKeyPublicKey = async (
   passkeyName: string
 ): Promise<WebAuthnKey> => {
-  return await toWebAuthnPubKey({
+  return await toWebAuthnKey({
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Login,
+    passkeyServerHeaders: {}
   });
 };
 
@@ -96,7 +101,8 @@ export const createMultiChainWeightedAccountAndClient = async (
           },
         ],
       },
-    }
+      kernelVersion: KERNEL_V3_1
+    },
   );
 
   const account = await createKernelAccount(publicClient, {
@@ -104,6 +110,7 @@ export const createMultiChainWeightedAccountAndClient = async (
     plugins: {
       sudo: multiSigValidator,
     },
+    kernelVersion: KERNEL_V3_1
   });
 
   const paymasterClient = createZeroDevPaymasterClient({

@@ -2,7 +2,6 @@
 import { Inter } from "next/font/google";
 import { useState, useEffect } from "react";
 import {
-  PASSKEY_URL,
   createMultiChainWeightedAccountAndClient,
   entryPoint,
   loginAndFetchPassKeyPublicKey,
@@ -28,7 +27,7 @@ import { ENTRYPOINT_ADDRESS_V07_TYPE } from "permissionless/types";
 import { bundlerActions } from "permissionless";
 import { MultiChainWeightedKernelAccountClient } from "@zerodev/multi-chain-weighted-validator";
 import { baseSepolia, sepolia } from "viem/chains";
-import { ApproveUserOperationReturnType } from "@zerodev/multi-chain-weighted-validator";
+import { ApproveUserOperationReturnType, getUpdateConfigCall, getCurrentSigners } from "@zerodev/multi-chain-weighted-validator";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -41,7 +40,12 @@ export default function Home() {
   const [approvals, setApprovals] = useState<ApproveUserOperationReturnType[]>(
     []
   );
+  const [updateApprovals, setUpdateApprovals] = useState<ApproveUserOperationReturnType[]>(
+    []
+  );
   const [signer, setSigner] = useState<PrivateKeyAccount>();
+  const [secondSigner, setSecondSigner] = useState<PrivateKeyAccount>();
+  const [currentSigners, setCurrentSigners] = useState<Address[]>([]);
   const [kernelClient, setKernelClient] =
     useState<
       MultiChainWeightedKernelAccountClient<
@@ -57,6 +61,8 @@ export default function Home() {
     const pKey = generatePrivateKey();
     setPrivateKey(pKey);
     setSigner(privateKeyToAccount(pKey));
+    const pKey2 = generatePrivateKey();
+    setSecondSigner(privateKeyToAccount(pKey2));
   }, []);
 
   useEffect(() => {
@@ -77,9 +83,7 @@ export default function Home() {
   const createPassKeyWeightedAccount = async (chain: Chain) => {
     if (!signer || !publicKey) return;
     const passKeySigner = await toWebAuthnSigner(publicClient, {
-      passkeyName: passKeyName,
-      passkeyServerUrl: PASSKEY_URL,
-      pubKey: publicKey,
+      webAuthnKey: publicKey,
     });
     const { client } = await createMultiChainWeightedAccountAndClient(
       passKeySigner,
@@ -139,6 +143,51 @@ export default function Home() {
     setApprovals([...approvals, approval]);
   };
 
+  const approveUpdateConfig = async () => {
+    if (!kernelClient) return;
+    if (!signer || !publicKey) return;
+    const ecdsaSigner = await toECDSASigner({
+      signer,
+    });
+    const multiChainAccounts = (
+      await Promise.all(
+        [sepolia, baseSepolia].map((chain) =>
+          createMultiChainWeightedAccountAndClient(
+            ecdsaSigner,
+            signer?.address,
+            publicKey,
+            chain
+          )
+        )
+      )
+    ).map((value) => value.account);
+
+    const updateConfigCall = getUpdateConfigCall(entryPoint, 
+      {
+        threshold: 100,
+        signers: [
+          {
+            publicKey: secondSigner!.address,
+            weight: 50,
+          },
+          {
+            publicKey,
+            weight: 50,
+          },
+        ],
+      }
+    )
+
+    const approval = await kernelClient.approveUserOperation({
+      userOperation: {
+        callData: await kernelClient.account.encodeCallData(updateConfigCall),
+      },
+      multiChainAccounts,
+    });
+    console.log({ approval });
+    setUpdateApprovals([...updateApprovals, approval]);
+  };
+
   const sendTxWithClient = async () => {
     if (!kernelClient) return;
     const userOpHash = await kernelClient.sendUserOperationWithApprovals({
@@ -159,6 +208,48 @@ export default function Home() {
 
     setTxHash(txReceipt.receipt.transactionHash);
   };
+
+  const sendUpdateConfigTxWithClient = async () => {
+    if (!kernelClient) return;
+    const userOpHash = await kernelClient.sendUserOperationWithApprovals({
+      userOperation: {
+        callData: await kernelClient.account.encodeCallData(
+          getUpdateConfigCall(entryPoint, 
+          {
+            threshold: 100,
+            signers: [
+              {
+                publicKey: secondSigner!.address,
+                weight: 50,
+              },
+              {
+                publicKey: publicKey!,
+                weight: 50,
+              },
+            ],
+          }
+        )),
+      },
+      approvals: updateApprovals,
+    });
+    console.log({ userOpHash });
+    const txReceipt = await kernelClient
+      .extend(bundlerActions(entryPoint))
+      .waitForUserOperationReceipt({ hash: userOpHash });
+    console.log({ txReceipt });
+
+    setTxHash(txReceipt.receipt.transactionHash);
+  };
+
+  const fetchCurrentSigners = async () => {
+    if (!kernelClient) return;
+    const currentSigners = await getCurrentSigners(
+      publicClient, 
+      {entryPoint, multiChainWeightedAccountAddress: kernelClient.account.address}
+    );
+    console.log({ currentSigners });
+    setCurrentSigners(currentSigners.map((signer) => signer.encodedPublicKey));
+  }
 
   return (
     <main
@@ -189,6 +280,9 @@ export default function Home() {
             </div>
             <div className="break-words">
               <strong>Smart Wallet Address:</strong> {scwAddress}
+            </div>
+            <div className="break-words">
+              <strong>Current Signers:</strong> {currentSigners.join(", ")}
             </div>
             <div className="break-words max-h-24 overflow-auto">
               <strong>Signatures:</strong> {signatures.join(", ")}
@@ -273,6 +367,79 @@ export default function Home() {
                 className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
               >
                 Send Tx with Client
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 5: Get current signers
+              </div>
+              <button
+                onClick={fetchCurrentSigners}
+                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Get Current Signers
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 6: Create Passkey Client and Approve Update Config
+              </div>
+              <button
+                onClick={() => createPassKeyWeightedAccount(sepolia)}
+                className="btn bg-green-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Create Passkey Client (Sepolia)
+              </button>
+              <button
+                onClick={approveUpdateConfig}
+                className="btn bg-purple-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Approve Operation with PassKey
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 7: Create Ecdsa Client and Send Update Config Tx on Sepolia
+              </div>
+              <button
+                onClick={() => createEcdsaWeightedAccount(sepolia)}
+                className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Create Ecdsa Client (Sepolia)
+              </button>
+              <button
+                onClick={sendUpdateConfigTxWithClient}
+                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Send Tx with Client
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 8: Create Ecdsa Client and Send Update Config Tx on Base Sepolia
+              </div>
+              <button
+                onClick={() => createEcdsaWeightedAccount(baseSepolia)}
+                className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Create Ecdsa Client (Base Sepolia)
+              </button>
+              <button
+                onClick={sendUpdateConfigTxWithClient}
+                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Send Tx with Client
+              </button>
+            </div>
+            <div className="space-y-2">
+              <div className="text-md font-semibold">
+                Step 9: Check if signers are updated
+              </div>
+              <button
+                onClick={fetchCurrentSigners}
+                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+              >
+                Check Signers
               </button>
             </div>
           </div>
