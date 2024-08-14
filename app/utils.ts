@@ -9,7 +9,7 @@ import {
   createKernelAccount,
   createZeroDevPaymasterClient,
 } from "@zerodev/sdk";
-import { Address, Chain, createPublicClient, http } from "viem";
+import { Address, Chain, createPublicClient, erc20Abi, Hex, http, zeroAddress } from "viem";
 import { baseSepolia, sepolia } from "viem/chains";
 import { ENTRYPOINT_ADDRESS_V07 } from "permissionless";
 import { WeightedSigner } from "@zerodev/multi-chain-weighted-validator";
@@ -18,13 +18,21 @@ import {
   createMultiChainWeightedKernelAccountClient,
 } from "@zerodev/multi-chain-weighted-validator";
 import { KERNEL_V3_1 } from '@zerodev/sdk/constants';
+import { privateKeyToAccount } from "viem/accounts";
+import { toPermissionValidator } from '@zerodev/permissions';
+import {
+  ParamCondition,
+  toCallPolicy,
+  CallPolicyVersion,
+} from '@zerodev/permissions/policies';
+import { toECDSASigner } from '@zerodev/permissions/signers';
 
 export const PASSKEY_URL =
-  "https://passkeys.zerodev.app/api/v3/eb928232-8e0d-4756-996b-c8ae6147677c";
+  "https://passkeys.zerodev.app/api/v3/ac9d7656-0fb5-4bc4-8b7a-fae661945c76";
 export const BUNDLER_URL =
-  "https://rpc.zerodev.app/api/v2/bundler/eb928232-8e0d-4756-996b-c8ae6147677c";
+  "https://rpc.zerodev.app/api/v2/bundler/ac9d7656-0fb5-4bc4-8b7a-fae661945c76";
 export const PAYMASTER_URL =
-  "https://rpc.zerodev.app/api/v2/paymaster/eb928232-8e0d-4756-996b-c8ae6147677c";
+  "https://rpc.zerodev.app/api/v2/paymaster/ac9d7656-0fb5-4bc4-8b7a-fae661945c76";
 export const chainConfig: {
   [key: Chain["id"]]: {
     bundler: string;
@@ -33,15 +41,15 @@ export const chainConfig: {
 } = {
   [sepolia.id]: {
     bundler:
-      "https://rpc.zerodev.app/api/v2/bundler/eb928232-8e0d-4756-996b-c8ae6147677c",
+      "https://rpc.zerodev.app/api/v2/bundler/ac9d7656-0fb5-4bc4-8b7a-fae661945c76",
     paymaster:
-      "https://rpc.zerodev.app/api/v2/paymaster/eb928232-8e0d-4756-996b-c8ae6147677c",
+      "https://rpc.zerodev.app/api/v2/paymaster/ac9d7656-0fb5-4bc4-8b7a-fae661945c76",
   },
   [baseSepolia.id]: {
     bundler:
-      "https://rpc.zerodev.app/api/v2/bundler/a637b264-19cb-4a5d-9929-9b706fe10acc",
+      "https://rpc.zerodev.app/api/v2/bundler/fe6d8ea6-a27d-4123-9b08-8ae2bf2549fb",
     paymaster:
-      "https://rpc.zerodev.app/api/v2/paymaster/a637b264-19cb-4a5d-9929-9b706fe10acc",
+      "https://rpc.zerodev.app/api/v2/paymaster/fe6d8ea6-a27d-4123-9b08-8ae2bf2549fb",
   },
 };
 export const entryPoint = ENTRYPOINT_ADDRESS_V07;
@@ -104,11 +112,35 @@ export const createMultiChainWeightedAccountAndClient = async (
       kernelVersion: KERNEL_V3_1
     },
   );
+  const privKey =
+  '0x10254f73f8b6742414072457c979b0bbd8e775d6677dbca2695120ac43a83bff' as Hex;
+  const ecdsaSigner = toECDSASigner({
+    signer: privateKeyToAccount(privKey),
+  });
+  const callPolicy = toCallPolicy({
+        policyVersion: CallPolicyVersion.V0_0_3, //V0_0_4 doesn't work either
+        permissions: [
+          {
+            target: zeroAddress,
+            valueLimit: BigInt(0),
+            abi: erc20Abi,
+            functionName: 'approve',
+          },
+        ],
+      });
 
+  // Fake session key that can only call the ERC20 "approve" on the zero address
+  const validator = await toPermissionValidator(publicClient, {
+    entryPoint,
+    kernelVersion: KERNEL_V3_1,
+    signer: ecdsaSigner,
+    policies: [callPolicy],
+  });
   const account = await createKernelAccount(publicClient, {
     entryPoint,
     plugins: {
       sudo: multiSigValidator,
+      regular: validator,
     },
     kernelVersion: KERNEL_V3_1
   });
