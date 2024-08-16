@@ -1,22 +1,24 @@
 import {
   toWebAuthnPubKey,
-  toWebAuthnSigner,
-  toECDSASigner,
   WebAuthnMode,
   WebAuthnKey,
   createWeightedValidator,
-  SIGNER_TYPE,
   createWeightedKernelAccountClient,
 } from "@zerodev/weighted-validator";
 import {
   createKernelAccount,
   createZeroDevPaymasterClient,
-  createKernelAccountClient,
 } from "@zerodev/sdk";
-import { Address, PrivateKeyAccount, createPublicClient, http } from "viem";
+import { Address, createPublicClient, http } from "viem";
 import { sepolia } from "viem/chains";
 import { ENTRYPOINT_ADDRESS_V07 } from "permissionless";
 import { WeightedSigner } from "@zerodev/weighted-validator";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts"
+import { zeroAddress, erc20Abi } from "viem"
+import { toCallPolicy, CallPolicyVersion } from "@zerodev/permissions/policies"
+import { toPermissionValidator } from "@zerodev/permissions"
+import { toECDSASigner } from "@zerodev/permissions/signers"
+import { KERNEL_V3_VERSION_TYPE } from "@zerodev/sdk/types";
 
 export const PASSKEY_URL =
   "https://passkeys.zerodev.app/api/v3/efbc1add-1c14-476e-b3f1-206db80e673c";
@@ -38,6 +40,7 @@ export const registerAndFetchPassKeyPublicKey = async (
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Register,
+    passkeyServerHeaders:{},
   });
 };
 
@@ -48,6 +51,7 @@ export const loginAndFetchPassKeyPublicKey = async (
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Login,
+    passkeyServerHeaders:{},
   });
 };
 
@@ -56,7 +60,30 @@ export const createWeightedAccountClient = async (
   ecdsaSignerAddress: Address,
   publicKey: WebAuthnKey
 ) => {
+  const rSigner = privateKeyToAccount(generatePrivateKey())
+  const ecdsaSigner = toECDSASigner({
+    signer:rSigner,
+  })
+  const callPolicy = toCallPolicy({
+    policyVersion: CallPolicyVersion.V0_0_3,
+    permissions: [
+      {
+        target: zeroAddress,
+        valueLimit: BigInt(0),
+        abi: erc20Abi,
+        functionName: "approve",
+      },
+    ],
+  })
+  const kernelVersion: KERNEL_V3_VERSION_TYPE = '0.3.1'
+  const validator = await toPermissionValidator(publicClient, {
+    kernelVersion,
+    entryPoint,
+    signer: ecdsaSigner,
+    policies: [ callPolicy ],
+  })
   const multiSigValidator = await createWeightedValidator(publicClient, {
+    kernelVersion,
     entryPoint,
     signer,
     config: {
@@ -75,9 +102,11 @@ export const createWeightedAccountClient = async (
   });
 
   const account = await createKernelAccount(publicClient, {
+    kernelVersion,
     entryPoint,
     plugins: {
       sudo: multiSigValidator,
+      regular: validator
     },
   });
 
