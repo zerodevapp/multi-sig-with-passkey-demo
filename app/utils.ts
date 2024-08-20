@@ -1,13 +1,15 @@
 import {
-  toWebAuthnPubKey,
   toWebAuthnSigner,
   toECDSASigner,
-  WebAuthnMode,
-  WebAuthnKey,
   createWeightedValidator,
   SIGNER_TYPE,
   createWeightedKernelAccountClient,
 } from "@zerodev/weighted-validator";
+import {
+  WebAuthnKey,
+  WebAuthnMode,
+  toWebAuthnKey
+} from "@zerodev/webauthn-key";
 import {
   createKernelAccount,
   createZeroDevPaymasterClient,
@@ -34,20 +36,22 @@ export const publicClient = createPublicClient({
 export const registerAndFetchPassKeyPublicKey = async (
   passkeyName: string
 ): Promise<WebAuthnKey> => {
-  return await toWebAuthnPubKey({
+  return await toWebAuthnKey({
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Register,
+    passkeyServerHeaders: {}
   });
 };
 
 export const loginAndFetchPassKeyPublicKey = async (
   passkeyName: string
 ): Promise<WebAuthnKey> => {
-  return await toWebAuthnPubKey({
+  return await toWebAuthnKey({
     passkeyName,
     passkeyServerUrl: PASSKEY_URL,
     mode: WebAuthnMode.Login,
+    passkeyServerHeaders: {}
   });
 };
 
