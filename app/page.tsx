@@ -215,6 +215,7 @@ export default function Home() {
   }
 
   const getCurrentSignersConfig = async () => {
+    if (!scwAddress) return;
     const currentSignersConfig = await getCurrentSigners(publicClient, {
       entryPoint,
       weightedAccountAddress: scwAddress,
