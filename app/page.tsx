@@ -4,20 +4,20 @@ import { useState, useEffect } from "react";
 import {
   PASSKEY_URL,
   createWeightedAccountClient,
-  entryPoint,
   loginAndFetchPassKeyPublicKey,
   publicClient,
   registerAndFetchPassKeyPublicKey,
 } from "./utils";
-import { KernelAccountClient, KernelSmartAccount } from "@zerodev/sdk";
 import {
-  WebAuthnKey,
+  KernelSmartAccountImplementation,
+} from "@zerodev/sdk";
+import {
   WeightedKernelAccountClient,
-  encodeSignatures,
   toECDSASigner,
   toWebAuthnSigner,
 } from "@zerodev/weighted-validator";
-import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { WebAuthnKey, toWebAuthnKey } from "@zerodev/webauthn-key";
+import { privateKeyToAccount } from "viem/accounts";
 import {
   Hex,
   PrivateKeyAccount,
@@ -26,9 +26,8 @@ import {
   zeroAddress,
   Address,
 } from "viem";
-import { ENTRYPOINT_ADDRESS_V07_TYPE } from "permissionless/types";
-import { bundlerActions } from "permissionless";
-import { encodeAbiParameters } from "viem/utils";
+
+import { SmartAccount } from "viem/account-abstraction";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -42,10 +41,9 @@ export default function Home() {
   const [kernelClient, setKernelClient] =
     useState<
       WeightedKernelAccountClient<
-        ENTRYPOINT_ADDRESS_V07_TYPE,
         Transport,
         Chain,
-        KernelSmartAccount<ENTRYPOINT_ADDRESS_V07_TYPE>
+        SmartAccount<KernelSmartAccountImplementation>
       >
     >();
   const [txHash, setTxHash] = useState<Hex>();
@@ -58,7 +56,7 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!kernelClient) return;
+    if (!kernelClient || !kernelClient.account) return;
     setScwAddress(kernelClient.account.address);
   }, [kernelClient]);
 
@@ -74,10 +72,14 @@ export default function Home() {
 
   const createPassKeyWeightedAccount = async () => {
     if (!signer || !publicKey) return;
-    const passKeySigner = await toWebAuthnSigner(publicClient, {
+    const webAuthnKey = await toWebAuthnKey({
       passkeyName: passKeyName,
       passkeyServerUrl: PASSKEY_URL,
-      pubKey: publicKey,
+      webAuthnKey: publicKey,
+      rpID: publicKey.rpID,
+    });
+    const passKeySigner = await toWebAuthnSigner(publicClient, {
+      webAuthnKey,
     });
     const client = await createWeightedAccountClient(
       passKeySigner,
@@ -103,15 +105,15 @@ export default function Home() {
   };
 
   const approveUserOperation = async () => {
-    if (!kernelClient) return;
+    if (!kernelClient || !kernelClient.account) return;
     const signature = await kernelClient.approveUserOperation({
-      userOperation: {
-        callData: await kernelClient.account.encodeCallData({
+      callData: await kernelClient.account.encodeCalls([
+        {
           to: zeroAddress,
           data: "0x",
           value: BigInt(0),
-        }),
-      },
+        },
+      ]),
     });
     console.log({ signature });
     setSignatures([...signatures, signature]);
@@ -120,19 +122,19 @@ export default function Home() {
   const sendTxWithClient = async () => {
     if (!kernelClient) return;
     const userOpHash = await kernelClient.sendUserOperationWithSignatures({
-      userOperation: {
-        callData: await kernelClient.account.encodeCallData({
+      callData: await kernelClient.account.encodeCalls([
+        {
           to: zeroAddress,
           value: BigInt(0),
           data: "0x",
-        }),
-      },
+        },
+      ]),
       signatures,
     });
     console.log({ userOpHash });
-    const txReceipt = await kernelClient
-      .extend(bundlerActions(entryPoint))
-      .waitForUserOperationReceipt({ hash: userOpHash });
+    const txReceipt = await kernelClient.waitForUserOperationReceipt({
+      hash: userOpHash,
+    });
     console.log({ txReceipt });
 
     setTxHash(txReceipt.receipt.transactionHash);
