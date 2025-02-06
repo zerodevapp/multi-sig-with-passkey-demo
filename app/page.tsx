@@ -8,11 +8,10 @@ import {
   publicClient,
   registerAndFetchPassKeyPublicKey,
 } from "./utils";
-import {
-  KernelSmartAccountImplementation,
-} from "@zerodev/sdk";
+import { KernelSmartAccountImplementation } from "@zerodev/sdk";
 import {
   WeightedKernelAccountClient,
+  WeightedSigner,
   toECDSASigner,
   toWebAuthnSigner,
 } from "@zerodev/weighted-validator";
@@ -32,12 +31,18 @@ import { SmartAccount } from "viem/account-abstraction";
 const inter = Inter({ subsets: ["latin"] });
 
 export default function Home() {
-  const [passKeyName, setPassKeyName] = useState("");
-  const [publicKey, setPublicKey] = useState<WebAuthnKey>();
-  const [privateKey, setPrivateKey] = useState<Hex>();
+  const [publicKey1, setPublicKey1] = useState<WebAuthnKey>();
+  const [publicKey2, setPublicKey2] = useState<WebAuthnKey>();
+  const [publicKey3, setPublicKey3] = useState<WebAuthnKey>();
+  const [passkeySigner1, setPasskeySigner1] = useState<WeightedSigner>();
+  const [passkeySigner2, setPasskeySigner2] = useState<WeightedSigner>();
+  const [passkeySigner3, setPasskeySigner3] = useState<WeightedSigner>();
+  const [activeSigner, setActiveSigner] = useState<WeightedSigner>();
+  const [activeKernelClient, setActiveKernelClient] = useState<string>();
+  // const [privateKey, setPrivateKey] = useState<Hex>();
   const [scwAddress, setScwAddress] = useState<Address>();
   const [signatures, setSignatures] = useState<Hex[]>([]);
-  const [signer, setSigner] = useState<PrivateKeyAccount>();
+  // const [signer, setSigner] = useState<PrivateKeyAccount>();
   const [kernelClient, setKernelClient] =
     useState<
       WeightedKernelAccountClient<
@@ -49,62 +54,83 @@ export default function Home() {
   const [txHash, setTxHash] = useState<Hex>();
 
   useEffect(() => {
-    const pKey =
-      "0x2827b876ee775816460ab6eb4481352a752101f950899831702ccead54bde932"; // generatePrivateKey();
-    setPrivateKey(pKey);
-    setSigner(privateKeyToAccount(pKey));
-  }, []);
-
-  useEffect(() => {
     if (!kernelClient || !kernelClient.account) return;
     setScwAddress(kernelClient.account.address);
   }, [kernelClient]);
 
-  const createPassKey = async () => {
-    const _publicKey = await registerAndFetchPassKeyPublicKey(passKeyName);
-    setPublicKey(_publicKey);
-  };
-
-  const loginPassKey = async () => {
-    const _publicKey = await loginAndFetchPassKeyPublicKey(passKeyName);
-    setPublicKey(_publicKey);
-  };
-
-  const createPassKeyWeightedAccount = async () => {
-    if (!signer || !publicKey) return;
-    const webAuthnKey = await toWebAuthnKey({
-      passkeyName: passKeyName,
+  const createThreePassKeys = async () => {
+    const publicKey1 = await registerAndFetchPassKeyPublicKey("passkey1");
+    const publicKey2 = await registerAndFetchPassKeyPublicKey("passkey2");
+    const publicKey3 = await registerAndFetchPassKeyPublicKey("passkey3");
+    setPublicKey1(publicKey1);
+    setPublicKey2(publicKey2);
+    setPublicKey3(publicKey3);
+    const webAuthnKey1 = await toWebAuthnKey({
+      passkeyName: "passkey1",
       passkeyServerUrl: PASSKEY_URL,
-      webAuthnKey: publicKey,
-      rpID: publicKey.rpID,
+      webAuthnKey: publicKey1,
+      rpID: publicKey1.rpID,
     });
-    const passKeySigner = await toWebAuthnSigner(publicClient, {
-      webAuthnKey,
+    const webAuthnKey2 = await toWebAuthnKey({
+      passkeyName: "passkey2",
+      passkeyServerUrl: PASSKEY_URL,
+      webAuthnKey: publicKey2,
+      rpID: publicKey2.rpID,
     });
-    const client = await createWeightedAccountClient(
-      passKeySigner,
-      signer?.address,
-      publicKey
-    );
-    console.log({ passKeyClient: client });
-    setKernelClient(client);
+    const webAuthnKey3 = await toWebAuthnKey({
+      passkeyName: "passkey3",
+      passkeyServerUrl: PASSKEY_URL,
+      webAuthnKey: publicKey3,
+      rpID: publicKey3.rpID,
+    });
+    const passKeySigner1 = await toWebAuthnSigner(publicClient, {
+      webAuthnKey: webAuthnKey1,
+    });
+    setPasskeySigner1(passKeySigner1);
+    const passKeySigner2 = await toWebAuthnSigner(publicClient, {
+      webAuthnKey: webAuthnKey2,
+    });
+    setPasskeySigner2(passKeySigner2);
+    const passKeySigner3 = await toWebAuthnSigner(publicClient, {
+      webAuthnKey: webAuthnKey3,
+    });
+    setPasskeySigner3(passKeySigner3);
+    setActiveSigner(passKeySigner1);
   };
 
-  const createEcdsaWeightedAccount = async () => {
-    if (!signer || !publicKey) return;
-    const ecdsaSigner = await toECDSASigner({
+  const createPassKeyWeightedClient = async (signer: WeightedSigner) => {
+    if (
+      !passkeySigner1 ||
+      !passkeySigner2 ||
+      !passkeySigner3 ||
+      !activeSigner ||
+      !publicKey1 ||
+      !publicKey2 ||
+      !publicKey3
+    )
+      return;
+    const client = await createWeightedAccountClient(
       signer,
-    });
-    const client = await createWeightedAccountClient(
-      ecdsaSigner,
-      signer?.address,
-      publicKey
+      publicKey1,
+      publicKey2,
+      publicKey3
     );
-    console.log({ ecdsaClient: client });
     setKernelClient(client);
+    setActiveSigner(signer);
+    switch (signer) {
+      case passkeySigner1:
+        setActiveKernelClient("passkey1");
+        break;
+      case passkeySigner2:
+        setActiveKernelClient("passkey2");
+        break;
+      case passkeySigner3:
+        setActiveKernelClient("passkey3");
+        break;
+    }
   };
 
-  const approveUserOperation = async () => {
+  const approveUserOperationWithActiveSigner = async () => {
     if (!kernelClient || !kernelClient.account) return;
     const signature = await kernelClient.approveUserOperation({
       callData: await kernelClient.account.encodeCalls([
@@ -149,23 +175,19 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2 p-4 bg-gray-700 rounded-lg">
             <div className="break-words">
-              <strong>EOA Address:</strong> {signer?.address}
+              <strong>Active Kernel Client:</strong> {activeKernelClient}
             </div>
             <div className="break-words">
-              <strong>PrivateKey:</strong> {privateKey}
+              <strong>Passkey1:</strong> {passkeySigner1?.getPublicKey()}
             </div>
             <div className="break-words">
-              <strong>PassKeyName:</strong> {passKeyName}
+              <strong>Passkey2:</strong> {passkeySigner2?.getPublicKey()}
             </div>
             <div className="break-words">
-              <strong>PassKeyPublicKey-X:</strong> {publicKey?.pubX.toString()}
+              <strong>Passkey3:</strong> {passkeySigner3?.getPublicKey()}
             </div>
             <div className="break-words">
-              <strong>PassKeyPublicKey-Y:</strong> {publicKey?.pubY.toString()}
-            </div>
-            <div className="break-words">
-              <strong>PassKeyPublicKey-authenticatorIdHash:</strong>{" "}
-              {publicKey?.authenticatorIdHash}
+              <strong>Active Signer:</strong> {activeSigner?.getPublicKey()}
             </div>
             <div className="break-words">
               <strong>Smart Wallet Address:</strong> {scwAddress}
@@ -180,64 +202,55 @@ export default function Home() {
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="text-md font-semibold">
-                Step 1: Create or Login Passkey
+                Step 1: Create Passkeys
               </div>
               <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  placeholder="PassKey Name"
-                  value={passKeyName}
-                  onChange={(e) => setPassKeyName(e.target.value)}
-                  className="input p-2 border border-gray-300 rounded-lg w-full text-black"
-                />
                 <button
-                  onClick={createPassKey}
+                  onClick={createThreePassKeys}
                   className="btn bg-blue-500 text-white rounded-lg px-4 py-2"
                 >
-                  Create Passkey
+                  Create Passkeys
                 </button>
               </div>
-              <button
-                onClick={loginPassKey}
-                className="btn bg-blue-500 text-white rounded-lg px-4 py-2 w-full"
-              >
-                Login Passkey
-              </button>
             </div>
-            <div className="space-y-2">
-              <div className="text-md font-semibold">
-                Step 2: Create Passkey Client and Approve
-              </div>
-              <button
-                onClick={createPassKeyWeightedAccount}
-                className="btn bg-green-500 text-white rounded-lg px-4 py-2 w-full"
-              >
-                Create Passkey Client
-              </button>
-              <button
-                onClick={approveUserOperation}
-                className="btn bg-purple-500 text-white rounded-lg px-4 py-2 w-full"
-              >
-                Approve Operation with PassKey
-              </button>
-            </div>
-            <div className="space-y-2">
-              <div className="text-md font-semibold">
-                Step 3: Create Ecdsa Client and Send Tx
-              </div>
-              <button
-                onClick={createEcdsaWeightedAccount}
-                className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
-              >
-                Create Ecdsa Client
-              </button>
-              <button
-                onClick={sendTxWithClient}
-                className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
-              >
-                Send Tx with Client
-              </button>
-            </div>
+            {passkeySigner1 && passkeySigner2 && passkeySigner3 && (
+              <>
+                <div className="space-y-2">
+                  <div className="text-md font-semibold">
+                    Step 2: Create Passkey Client with Passkey1 and Approve
+                  </div>
+                  <button
+                    onClick={() => createPassKeyWeightedClient(passkeySigner1)}
+                    className="btn bg-green-500 text-white rounded-lg px-4 py-2 w-full"
+                  >
+                    Create Passkey Client with Passkey1
+                  </button>
+                  <button
+                    onClick={approveUserOperationWithActiveSigner}
+                    className="btn bg-purple-500 text-white rounded-lg px-4 py-2 w-full"
+                  >
+                    Approve Operation with PassKey1
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-md font-semibold">
+                    Step 3: Create Passkey Client with Passkey3 and Send Tx
+                  </div>
+                  <button
+                    onClick={() => createPassKeyWeightedClient(passkeySigner3)}
+                    className="btn bg-red-500 text-white rounded-lg px-4 py-2 w-full"
+                  >
+                    Create Passkey Client with Passkey3
+                  </button>
+                  <button
+                    onClick={sendTxWithClient}
+                    className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
+                  >
+                    Send Tx with PassKey3
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

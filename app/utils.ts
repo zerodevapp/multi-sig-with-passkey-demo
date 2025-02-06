@@ -51,8 +51,9 @@ export const loginAndFetchPassKeyPublicKey = async (
 
 export const createWeightedAccountClient = async (
   signer: WeightedSigner,
-  ecdsaSignerAddress: Address,
-  publicKey: WebAuthnKey
+  publicKey1: WebAuthnKey,
+  publicKey2: WebAuthnKey,
+  publicKey3: WebAuthnKey
 ) => {
   const multiSigValidator = await createWeightedValidator(publicClient, {
     entryPoint,
@@ -62,12 +63,16 @@ export const createWeightedAccountClient = async (
       threshold: 100,
       signers: [
         {
-          publicKey: ecdsaSignerAddress,
+          publicKey: publicKey1,
           weight: 50,
         },
         {
-          publicKey,
-          weight: 100,
+          publicKey: publicKey2,
+          weight: 50,
+        },
+        {
+          publicKey: publicKey3,
+          weight: 50,
         },
       ],
     },
