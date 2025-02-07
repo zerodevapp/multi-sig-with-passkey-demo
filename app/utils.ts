@@ -2,6 +2,7 @@ import {
   createWeightedValidator,
   createWeightedKernelAccountClient,
   getRecoveryAction,
+  getRecoveryFallbackActionInstallModuleData,
 } from "@zerodev/weighted-validator";
 import {
   WebAuthnKey,
@@ -133,18 +134,7 @@ export const createWeightedAccountClient = async (
     },
     pluginMigrations: [
       recoveryPluginInstallModuleData,
-      {
-        address: recoveryAction.address,
-        type: PLUGIN_TYPE.FALLBACK,
-        data: concatHex([
-          recoveryAction.selector,
-          zeroAddress,
-          encodeAbiParameters(
-            parseAbiParameters("bytes selectorData, bytes hookData"),
-            [CALL_TYPE.DELEGATE_CALL, "0x"]
-          ),
-        ]),
-      },
+      getRecoveryFallbackActionInstallModuleData(entryPoint.version),
     ],
     // Only needed to set after changing the sudo validator config i.e.
     // changing the threshold or adding/removing/updating signers

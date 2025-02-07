@@ -11,7 +11,7 @@
   "dependencies": {
     "@zerodev/sdk": "^5.4.19",
     "@zerodev/weighted-ecdsa-validator": "^5.4.1",
-    "@zerodev/weighted-validator": "^5.4.2",
+    "@zerodev/weighted-validator": "^5.4.4",
     "next": "14.1.0",
     "react": "^18",
     "react-dom": "^18"
