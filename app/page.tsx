@@ -3,20 +3,25 @@ import { Inter } from "next/font/google";
 import { useState, useEffect } from "react";
 import {
   PASSKEY_URL,
+  createRecoveryClient,
   createWeightedAccountClient,
+  entryPoint,
+  kernelVersion,
   loginAndFetchPassKeyPublicKey,
   publicClient,
+  recoveryExecutorFunction,
   registerAndFetchPassKeyPublicKey,
 } from "./utils";
 import { KernelSmartAccountImplementation } from "@zerodev/sdk";
 import {
   WeightedKernelAccountClient,
   WeightedSigner,
+  createWeightedValidator,
   toECDSASigner,
   toWebAuthnSigner,
 } from "@zerodev/weighted-validator";
 import { WebAuthnKey, toWebAuthnKey } from "@zerodev/webauthn-key";
-import { privateKeyToAccount } from "viem/accounts";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import {
   Hex,
   PrivateKeyAccount,
@@ -24,6 +29,8 @@ import {
   Chain,
   zeroAddress,
   Address,
+  encodeFunctionData,
+  parseAbi,
 } from "viem";
 
 import { SmartAccount } from "viem/account-abstraction";
@@ -39,10 +46,11 @@ export default function Home() {
   const [passkeySigner3, setPasskeySigner3] = useState<WeightedSigner>();
   const [activeSigner, setActiveSigner] = useState<WeightedSigner>();
   const [activeKernelClient, setActiveKernelClient] = useState<string>();
-  // const [privateKey, setPrivateKey] = useState<Hex>();
+  const [recoveryPrivateKey, setRecoveryPrivateKey] = useState<Hex>();
   const [scwAddress, setScwAddress] = useState<Address>();
   const [signatures, setSignatures] = useState<Hex[]>([]);
-  // const [signer, setSigner] = useState<PrivateKeyAccount>();
+  const [recoverySigner, setRecoverySigner] = useState<PrivateKeyAccount>();
+  const [status, setStatus] = useState<string>();
   const [kernelClient, setKernelClient] =
     useState<
       WeightedKernelAccountClient<
@@ -59,9 +67,15 @@ export default function Home() {
   }, [kernelClient]);
 
   const createThreePassKeys = async () => {
+    const recoveryPrivateKey = generatePrivateKey();
+    setRecoveryPrivateKey(recoveryPrivateKey);
+    const recoverySigner = privateKeyToAccount(recoveryPrivateKey);
+    setRecoverySigner(recoverySigner);
+    setStatus("Creating Passkeys");
     const publicKey1 = await registerAndFetchPassKeyPublicKey("passkey1");
     const publicKey2 = await registerAndFetchPassKeyPublicKey("passkey2");
     const publicKey3 = await registerAndFetchPassKeyPublicKey("passkey3");
+    setStatus("Passkeys Created");
     setPublicKey1(publicKey1);
     setPublicKey2(publicKey2);
     setPublicKey3(publicKey3);
@@ -99,6 +113,7 @@ export default function Home() {
   };
 
   const createPassKeyWeightedClient = async (signer: WeightedSigner) => {
+    setStatus("Creating Weighted Client");
     if (
       !passkeySigner1 ||
       !passkeySigner2 ||
@@ -106,17 +121,21 @@ export default function Home() {
       !activeSigner ||
       !publicKey1 ||
       !publicKey2 ||
-      !publicKey3
+      !publicKey3 ||
+      !recoverySigner
     )
       return;
     const client = await createWeightedAccountClient(
       signer,
       publicKey1,
       publicKey2,
-      publicKey3
+      publicKey3,
+      recoverySigner,
+      scwAddress
     );
     setKernelClient(client);
     setActiveSigner(signer);
+    setStatus("Weighted Client Created");
     switch (signer) {
       case passkeySigner1:
         setActiveKernelClient("passkey1");
@@ -132,6 +151,7 @@ export default function Home() {
 
   const approveUserOperationWithActiveSigner = async () => {
     if (!kernelClient || !kernelClient.account) return;
+    setStatus("Approving Operation");
     const signature = await kernelClient.approveUserOperation({
       callData: await kernelClient.account.encodeCalls([
         {
@@ -143,10 +163,12 @@ export default function Home() {
     });
     console.log({ signature });
     setSignatures([...signatures, signature]);
+    setStatus("Operation Approved");
   };
 
   const sendTxWithClient = async () => {
     if (!kernelClient) return;
+    setStatus("Sending Transaction");
     const userOpHash = await kernelClient.sendUserOperationWithSignatures({
       callData: await kernelClient.account.encodeCalls([
         {
@@ -158,12 +180,98 @@ export default function Home() {
       signatures,
     });
     console.log({ userOpHash });
+    setStatus("Transaction Sent");
+    setStatus("Waiting for Transaction Receipt");
     const txReceipt = await kernelClient.waitForUserOperationReceipt({
       hash: userOpHash,
     });
     console.log({ txReceipt });
-
+    setStatus("Transaction Receipt Received");
     setTxHash(txReceipt.receipt.transactionHash);
+    setSignatures([]);
+  };
+
+  const doRecovery = async () => {
+    if (
+      !recoverySigner ||
+      !scwAddress ||
+      !publicKey1 ||
+      !publicKey2 ||
+      !passkeySigner1
+    )
+      return;
+    setStatus("Creating Recovery Client");
+    const recoveryClient = await createRecoveryClient(
+      recoverySigner,
+      scwAddress
+    );
+    setStatus("Recovery Client Created");
+    setStatus("Creating New Passkey");
+    const publicKey3 = await registerAndFetchPassKeyPublicKey("passkey3");
+    setStatus("New Passkey3 Created");
+    setPublicKey3(publicKey3);
+    const webAuthnKey3 = await toWebAuthnKey({
+      passkeyName: "passkey3",
+      passkeyServerUrl: PASSKEY_URL,
+      webAuthnKey: publicKey3,
+      rpID: publicKey3.rpID,
+    });
+    const passKeySigner3 = await toWebAuthnSigner(publicClient, {
+      webAuthnKey: webAuthnKey3,
+    });
+    setPasskeySigner3(passKeySigner3);
+
+    const newValidator = await createWeightedValidator(publicClient, {
+      kernelVersion,
+      entryPoint,
+      signer: passKeySigner3,
+      config: {
+        threshold: 100,
+        signers: [
+          {
+            publicKey: publicKey1,
+            weight: 50,
+          },
+          {
+            publicKey: publicKey2,
+            weight: 50,
+          },
+          {
+            publicKey: publicKey3,
+            weight: 50,
+          },
+        ],
+      },
+    });
+
+    setStatus("Sending Recovery Operation");
+    const userOpHash = await recoveryClient.sendUserOperation({
+      callData: encodeFunctionData({
+        abi: parseAbi([recoveryExecutorFunction]),
+        functionName: "doRecovery",
+        args: [newValidator.address, await newValidator.getEnableData()],
+      }),
+    });
+    setStatus("Recovery Operation Sent");
+    console.log({ userOpHash });
+    setStatus("Waiting for Recovery Operation Receipt");
+    const txReceipt = await recoveryClient.waitForUserOperationReceipt({
+      hash: userOpHash,
+    });
+    setStatus("Recovery Operation Receipt Received");
+    console.log({ txReceipt });
+    setTxHash(txReceipt.receipt.transactionHash);
+    const client = await createWeightedAccountClient(
+      passkeySigner1,
+      publicKey1,
+      publicKey2,
+      publicKey3,
+      recoverySigner,
+      scwAddress
+    );
+    setKernelClient(client);
+    setActiveSigner(passkeySigner1);
+    setActiveKernelClient("passkey1");
   };
 
   return (
@@ -174,8 +282,14 @@ export default function Home() {
         <div className="text-lg font-semibold mb-4">Wallet Information</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           <div className="space-y-2 p-4 bg-gray-700 rounded-lg">
+            <div className="break-words text-lime-600">
+              <strong>Status:</strong> {status}
+            </div>
             <div className="break-words">
               <strong>Active Kernel Client:</strong> {activeKernelClient}
+            </div>
+            <div className="break-words">
+              <strong>Recovery Signer:</strong> {recoverySigner?.address}
             </div>
             <div className="break-words">
               <strong>Passkey1:</strong> {passkeySigner1?.getPublicKey()}
@@ -247,6 +361,17 @@ export default function Home() {
                     className="btn bg-indigo-500 text-white rounded-lg px-4 py-2 w-full"
                   >
                     Send Tx with PassKey3
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-md font-semibold">
+                    Step 4: Do Recovery
+                  </div>
+                  <button
+                    onClick={doRecovery}
+                    className="btn bg-yellow-500 text-white rounded-lg px-4 py-2 w-full"
+                  >
+                    Do Recovery
                   </button>
                 </div>
               </>
