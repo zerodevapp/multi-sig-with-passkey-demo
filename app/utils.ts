@@ -1,6 +1,7 @@
 import {
   createWeightedValidator,
   createWeightedKernelAccountClient,
+  WeightedValidatorContractVersion,
 } from "@zerodev/weighted-validator";
 import {
   WebAuthnKey,
@@ -71,6 +72,7 @@ export const createWeightedAccountClient = async (
         },
       ],
     },
+    validatorContractVersion: WeightedValidatorContractVersion.V0_0_2_PATCHED,
   });
 
   const account = await createKernelAccount(publicClient, {
