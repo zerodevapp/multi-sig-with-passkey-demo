@@ -13,6 +13,7 @@ import {
 } from "@zerodev/sdk";
 import {
   WeightedKernelAccountClient,
+  WeightedValidatorContractVersion,
   toECDSASigner,
   toWebAuthnSigner,
 } from "@zerodev/weighted-validator";
@@ -114,6 +115,7 @@ export default function Home() {
           value: BigInt(0),
         },
       ]),
+      validatorContractVersion: WeightedValidatorContractVersion.V0_0_2_PATCHED,
     });
     console.log({ signature });
     setSignatures([...signatures, signature]);
